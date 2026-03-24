@@ -1,52 +1,37 @@
 from pathlib import Path
-from rgain3 import ReplayGain
+import subprocess
 
 def normalize_mp3_folder(folder_path, target_db=-18.0, album_mode=False, recursive=False):
     root = Path(folder_path).expanduser()
     if not root.exists():
-        raise FileNotFoundError(f"Folder does not exist: {root}")
+        print(f"Folder does not exist: {root}")
+        return
     if not root.is_dir():
-        raise NotADirectoryError(f"Not a folder: {root}")
-    candidates = root.rglob("*") if recursive else root.iterdir()
-    files = sorted(p for p in candidates if p.is_file() and p.suffix.lower() == ".mp3")
+        print(f"Not a folder: {root}")
+        return
+    candidates = root.rglob("*.mp3") if recursive else root.glob("*.mp3")
+    files = sorted(p for p in candidates if p.is_file())
     if not files:
         print("No mp3 files found in the folder.")
         return
-    rg = ReplayGain()
-    paths = [str(p) for p in files]
+    print(f"Found {len(files)} mp3 files.")
+    gain_db = 89 + target_db
+    cmd = ["mp3gain", "-q", "-r"]
     if album_mode:
-        print(f"Calculating album gain for {len(files)} files...")
-        try:
-            gain_data = rg.calculate_album_gain(paths, target_db)
-        except Exception as exc:
-            raise RuntimeError(f"Album gain calculation failed: {exc}") from exc
-        failures = 0
-        for path in paths:
-            try:
-                rg.write_gain(path, gain_data)
-            except Exception as exc:
-                failures += 1
-                print(f"Failed to write gain for {path}: {exc}")
-        if failures:
-            print(f"Finished with {failures} write failures.")
-        else:
-            print("Finished applying ReplayGain tags.")
-        return
-    print(f"Calculating track gain for {len(files)} files...")
-    failures = 0
-    for path in paths:
-        try:
-            gain_data = rg.calculate_track_gain(path, target_db)
-            rg.write_gain(path, gain_data)
-        except Exception as exc:
-            failures += 1
-            print(f"Failed for {path}: {exc}")
-    if failures:
-        print(f"Finished with {failures} failures.")
-    else:
-        print("Finished applying ReplayGain tags.")
+        cmd.append("-a")
+    cmd.extend(["-d", str(int(gain_db * 10))])
+    paths = [str(p) for p in files]
+    try:
+        result = subprocess.run(cmd + paths, capture_output=True, text=True, check=True)
+        print("ReplayGain applied successfully.")
+        if result.stdout:
+            print(result.stdout.strip())
+    except subprocess.CalledProcessError as e:
+        print("mp3gain failed:")
+        print(e.stderr)
 
 if __name__ == "__main__":
+    print("Install: sudo apt install mp3gain")
     folder = input("Input folder: ").strip()
     normalize_mp3_folder(folder, album_mode=False)
 
